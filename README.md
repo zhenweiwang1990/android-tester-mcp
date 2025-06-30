@@ -69,4 +69,4 @@ This is an MCP server that provides tools for Android automation. Once running, 
 
 ## Sample Prompts in Cursor
 
-> Test the apk of this project, create an android environment on gbox like a user, just install it and test it by instructing the MCP tool ai_action. Keep developing and testing until all requirements are met.
+> Test the apk of this project like a user, just create an android environment on gbox, and install it and test it by instructing the MCP tool ai_action. Keep developing and testing until all requirements are met.
