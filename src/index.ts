@@ -7,6 +7,7 @@ import GboxSDK, {
 
 import { FastMCP } from "fastmcp";
 import { z } from "zod";
+import { exec } from "child_process";
 
 // Ensure API KEY is available
 const apiKey = process.env.GBOX_API_KEY;
@@ -368,7 +369,12 @@ server.addTool({
     }),
   execute: async ({ boxId, apk }: { boxId: string; apk?: string }) => {
     const box = await attachBox(boxId);
-    const appOperator = await box.app.install({ apk: apk! });
+    let apkPath = apk;
+    if (apk?.startsWith("file://")) {
+      apkPath = apk.slice(7);
+    }
+
+    const appOperator = await box.app.install({ apk: apkPath! });
     return {
       content: [
         {
@@ -440,6 +446,47 @@ server.addTool({
         {
           type: "text",
           text: JSON.stringify({ packageName, status: "opened" }),
+        },
+      ],
+    };
+  },
+});
+
+server.addTool({
+  name: "open_live_view",
+  annotations: {
+    openWorldHint: true,
+    readOnlyHint: false,
+    title: "Open Live View",
+  },
+  description:
+    "Open the live-view URL of the Android box in the default browser.",
+  parameters: z.object({
+    boxId: z.string().describe("ID of the box"),
+  }),
+  execute: async ({ boxId }: { boxId: string }) => {
+    const box = await attachBox(boxId);
+    const liveView = await box.liveView();
+
+    // Determine the appropriate command to open the URL based on the OS
+    const command =
+      process.platform === "darwin"
+        ? `open "${liveView.url}"`
+        : process.platform === "win32"
+        ? `start "" "${liveView.url}"`
+        : `xdg-open "${liveView.url}"`;
+
+    exec(command, (err) => {
+      if (err) {
+        console.error(`Failed to open browser for URL ${liveView.url}:`, err);
+      }
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Opening live view in browser: ${liveView.url}`,
         },
       ],
     };
