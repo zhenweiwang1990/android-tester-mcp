@@ -1,0 +1,1 @@
+rootProject.name = "gbox-android-studio-plugin"

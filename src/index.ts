@@ -1,495 +1,388 @@
 import "dotenv/config";
-import GboxSDK, {
-  AndroidBoxOperator,
-  ActionOperator,
-  CreateAndroid,
-} from "gbox-sdk";
-
 import { FastMCP } from "fastmcp";
 import { z } from "zod";
-import { exec } from "child_process";
-
-// Ensure API KEY is available
-const apiKey = process.env.GBOX_API_KEY;
-if (!apiKey) {
-  throw new Error("请在环境变量或 .env 文件中设置 GBOX_API_KEY");
-}
-
-// Initialise Gbox SDK
-const gboxSDK = new GboxSDK({ apiKey });
-
-interface AIActionResult {
-  screenshot: {
-    after: { uri: string };
-    before: { uri: string };
-    trace: { uri: string };
-  };
-  // Other fields may be present, but we only use screenshot data for now.
-}
-
-type ActionOperatorWithAI = ActionOperator & {
-  ai: (instruction: string) => Promise<AIActionResult>;
-};
-
-type AndroidBoxWithAI = AndroidBoxOperator & {
-  action: ActionOperatorWithAI;
-};
-
-async function attachBox(boxId: string): Promise<AndroidBoxWithAI> {
-  try {
-    const box = (await gboxSDK.get(boxId)) as AndroidBoxWithAI;
-    return box;
-  } catch (err) {
-    throw new Error(
-      `Failed to attach to box ${boxId}: ${(err as Error).message}`
-    );
-  }
-}
-
-const createAndroidBoxParamsSchema = z
-  .object({
-    config: z
-      .object({
-        deviceType: z
-          .enum(["virtual", "physical"])
-          .optional()
-          .describe("Device type - virtual or physical Android device"),
-        envs: z
-          .record(z.string())
-          .optional()
-          .describe("Environment variables for the box."),
-        expiresIn: z
-          .string()
-          .regex(/^\d+(ms|s|m|h)$/)
-          .optional()
-          .describe(
-            'The box will be alive for the given duration (e.g., "30s", "5m", "1h"). Default: 60m'
-          ),
-        labels: z
-          .record(z.string())
-          .optional()
-          .describe("Key-value pairs of labels for the box."),
-      })
-      .optional(),
-    wait: z
-      .boolean()
-      .optional()
-      .describe("Wait for the box operation to be completed, default is true"),
-  })
-  .partial()
-  .describe("Parameters for creating a new Android box.");
 
 const server = new FastMCP({
-  name: "gbox-android",
+  name: "gbox-run-tool",
   version: "1.0.0",
 });
 
-// Zod schema derived from BoxListParams in gbox-sdk
-const listBoxesParamsSchema = z
-  .object({
-    deviceType: z
-      .string()
-      .optional()
-      .describe("Filter boxes by their device type (virtual, physical)"),
-    labels: z
-      .any()
-      .optional()
-      .describe(
-        "Filter boxes by their labels. Labels are key-value pairs that help identify and categorize boxes."
-      ),
-    page: z.number().int().optional().describe("Page number"),
-    pageSize: z.number().int().optional().describe("Page size"),
-    status: z
-      .array(z.enum(["all", "pending", "running", "error", "terminated"]))
-      .optional()
-      .describe(
-        "Filter boxes by their current status (pending, running, stopped, error, terminated, all)."
-      ),
-    type: z
-      .array(z.enum(["all", "linux", "android"]))
-      .optional()
-      .describe(
-        "Filter boxes by their type (linux, android, all). Must be an array of types."
-      ),
-  })
-  .partial();
+// Helper function to make HTTP requests to the Android Studio plugin API
+async function makeApiRequest(endpoint: string, data?: any): Promise<any> {
+  const url = `http://localhost:8765/api/${endpoint}`;
 
+  try {
+    const response = await fetch(url, {
+      method: data ? "POST" : "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: data ? JSON.stringify(data) : undefined,
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    return result;
+  } catch (error: any) {
+    const originalMsg = error?.message ?? String(error);
+    let hint = "";
+    // Most common reason is that the API server isn't running in Android Studio
+    if (
+      originalMsg.includes("ECONNREFUSED") ||
+      originalMsg.includes("fetch failed")
+    ) {
+      hint =
+        "\nHint: Ensure the Gbox API server is running in Android Studio (Tools → Gbox → Start API Server).";
+    }
+    throw new Error(`API request failed: ${originalMsg}${hint}`);
+  }
+}
+
+// Android Start App Tool
 server.addTool({
-  name: "create_android_box",
+  name: "android_start_app",
   annotations: {
     openWorldHint: true,
     readOnlyHint: false,
-    title: "Create Gbox Android",
+    title: "Start Android App",
   },
-  description: "Create a fresh Android box and return its metadata.",
-  parameters: createAndroidBoxParamsSchema,
-  execute: async (params: z.infer<typeof createAndroidBoxParamsSchema>) => {
-    const created = await gboxSDK.create({
-      type: "android",
-      ...params,
-    } as CreateAndroid);
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(created.data, null, 2),
-        },
-      ],
-    };
-  },
-});
-
-server.addTool({
-  name: "list_boxes",
-  annotations: {
-    openWorldHint: true,
-    readOnlyHint: true,
-    title: "List Gbox Android Boxes",
-  },
-  description: "List all current boxes belonging to this API Key.",
-  parameters: listBoxesParamsSchema,
-  execute: async (query: z.infer<typeof listBoxesParamsSchema>) => {
-    const boxes = await gboxSDK.listInfo(query);
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(boxes, null, 2),
-        },
-      ],
-    };
-  },
-});
-
-server.addTool({
-  name: "get_box",
-  annotations: {
-    openWorldHint: true,
-    readOnlyHint: true,
-    title: "Get Gbox Android Box",
-  },
-  description: "Get box information by ID.",
+  description: "Start the Android application in the current project",
   parameters: z.object({
-    boxId: z.string().describe("ID of the box"),
-  }),
-  execute: async ({ boxId }: { boxId: string }) => {
-    const info = await gboxSDK.getInfo(boxId);
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(info, null, 2),
-        },
-      ],
-    };
-  },
-});
-
-server.addTool({
-  name: "get_screenshot",
-  annotations: {
-    openWorldHint: true,
-    readOnlyHint: true,
-    title: "Get Gbox Android Screenshot",
-  },
-  description: "Take a screenshot of the current display for a given box.",
-  parameters: z.object({
-    boxId: z.string().describe("ID of the box"),
-    outputFormat: z
-      .enum(["base64", "storageKey"])
-      .optional()
-      .default("base64")
-      .describe("The output format for the screenshot."),
-  }),
-  execute: async ({
-    boxId,
-    outputFormat,
-  }: {
-    boxId: string;
-    outputFormat?: "base64" | "storageKey";
-  }) => {
-    const box = await attachBox(boxId);
-    // Ensure we request base64 output for easy embedding
-    const result = await box.action.screenshot({ outputFormat });
-
-    // The SDK returns a `uri` string. It may be a bare base64 string or a data URI.
-    let mimeType = "image/png";
-    let base64Data = result.uri;
-
-    if (result.uri.startsWith("data:")) {
-      const match = result.uri.match(/^data:(.+);base64,(.*)$/);
-      if (match) {
-        mimeType = match[1];
-        base64Data = match[2];
-      }
-    }
-
-    return {
-      content: [
-        {
-          type: "image",
-          data: base64Data,
-          mimeType,
-        },
-      ],
-    };
-  },
-});
-
-server.addTool({
-  name: "ai_action",
-  annotations: {
-    openWorldHint: true,
-    readOnlyHint: false,
-    title: "AI Action",
-  },
-  description:
-    "Perform an action on the UI of the android box (natural language instruction).",
-  parameters: z.object({
-    boxId: z.string().describe("ID of the box"),
-    instruction: z
-      .string()
-      .describe(
-        "Direct instruction of the UI action to perform, e.g. 'click the login button'"
-      ),
-    background: z
+    projectPath: z
       .string()
       .optional()
-      .describe(
-        "Contextual background for the action, to help the AI understand previous steps"
-      ),
-    includeScreenshot: z
-      .boolean()
-      .optional()
-      .describe(
-        "Whether to include screenshots in the action response (default false)"
-      ),
-    outputFormat: z
-      .enum(["base64", "storageKey"])
-      .optional()
-      .describe("Output format for screenshot URIs (default 'base64')"),
-    screenshotDelay: z
-      .string()
-      .regex(/^[0-9]+(ms|s|m|h)$/)
-      .optional()
-      .describe(
-        "Delay after performing the action before the final screenshot, e.g. '500ms'"
-      ),
+      .describe("Optional path to the Android project"),
   }),
-  execute: async ({
-    boxId,
-    ...actionParams
-  }: {
-    boxId: string;
-    instruction: string;
-    background?: string;
-    includeScreenshot?: boolean;
-    outputFormat?: "base64" | "storageKey";
-    screenshotDelay?: string;
-  }) => {
-    const box = await attachBox(boxId);
+  execute: async ({ projectPath }: { projectPath?: string }) => {
+    try {
+      const response = await makeApiRequest("start", { projectPath });
 
-    // Ensure screenshots are included and returned as base64 for easy embedding
-    const {
-      includeScreenshot = true,
-      outputFormat = "base64",
-      ...restParams
-    } = actionParams as any;
-
-    const result = (await box.action.ai({
-      includeScreenshot,
-      outputFormat,
-      ...restParams,
-    } as any)) as AIActionResult;
-
-    // Prepare image contents for before and after screenshots
-    const images: Array<{ type: "image"; data: string; mimeType: string }> = [];
-
-    const parseUri = (uri: string) => {
-      let mimeType = "image/png";
-      let base64Data = uri;
-
-      if (uri.startsWith("data:")) {
-        const match = uri.match(/^data:(.+);base64,(.*)$/);
-        if (match) {
-          mimeType = match[1];
-          base64Data = match[2];
-        }
+      if (!response.success) {
+        throw new Error(`Start app failed: ${response.message}`);
       }
 
-      return { mimeType, base64Data };
-    };
-
-    if (result?.screenshot?.before?.uri) {
-      const { mimeType, base64Data } = parseUri(result.screenshot.before.uri);
-      images.push({ type: "image", data: base64Data, mimeType });
-    }
-
-    if (result?.screenshot?.after?.uri) {
-      const { mimeType, base64Data } = parseUri(result.screenshot.after.uri);
-      images.push({ type: "image", data: base64Data, mimeType });
-    }
-
-    // Fallback to text if no images were produced
-    if (images.length === 0) {
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(result, null, 2),
+            text: `✅ Android app started successfully: ${response.message}${
+              response.data?.configurationName
+                ? `\nConfiguration: ${response.data.configurationName}`
+                : ""
+            }`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `❌ Error starting Android app: ${(error as Error).message}`,
           },
         ],
       };
     }
-
-    return { content: images };
   },
 });
 
+// Android Stop App Tool
 server.addTool({
-  name: "install_apk",
+  name: "android_stop_app",
   annotations: {
     openWorldHint: true,
     readOnlyHint: false,
-    title: "Install APK",
+    title: "Stop Android App",
   },
-  description: "Install an APK file into the Gbox Android box.",
-  parameters: z
-    .object({
-      boxId: z.string().describe("ID of the box"),
-      apk: z
-        .string()
-        .optional()
-        .describe(
-          "Local file path or HTTP(S) URL of the APK to install, for example: '/Users/jack/abc.apk', if local file provided, Gbox SDK will upload it to the box and install it. if apk is a url, Gbox SDK will download it to the box and install it(please make sure the url is public internet accessible)."
-        ),
-    })
-    .refine((data) => data.apk, {
-      message: "Either 'apk' must be provided.",
-    }),
-  execute: async ({ boxId, apk }: { boxId: string; apk?: string }) => {
-    const box = await attachBox(boxId);
-    let apkPath = apk;
-    if (apk?.startsWith("file://")) {
-      apkPath = apk.slice(7);
-    }
-
-    const appOperator = await box.app.install({ apk: apkPath! });
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(appOperator.data, null, 2),
-        },
-      ],
-    };
-  },
-});
-
-server.addTool({
-  name: "uninstall_apk",
-  annotations: {
-    openWorldHint: true,
-    readOnlyHint: false,
-    title: "Uninstall APK",
-  },
-  description: "Uninstall an app from the Android box by package name.",
+  description: "Stop the currently running Android application",
   parameters: z.object({
-    boxId: z.string().describe("ID of the box"),
-    packageName: z.string().describe("Android package name to uninstall"),
+    projectPath: z
+      .string()
+      .optional()
+      .describe("Optional path to the Android project"),
   }),
-  execute: async ({
-    boxId,
-    packageName,
-  }: {
-    boxId: string;
-    packageName: string;
-  }) => {
-    const box = await attachBox(boxId);
-    await box.app.uninstall(packageName, {});
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({ packageName, status: "uninstalled" }),
-        },
-      ],
-    };
-  },
-});
+  execute: async ({ projectPath }: { projectPath?: string }) => {
+    try {
+      const response = await makeApiRequest("stop", { projectPath });
 
-server.addTool({
-  name: "open_app",
-  annotations: {
-    openWorldHint: true,
-    readOnlyHint: false,
-    title: "Open App",
-  },
-  description:
-    "Launch an installed application by package name on the Android box.",
-  parameters: z.object({
-    boxId: z.string().describe("ID of the box"),
-    packageName: z.string().describe("Android package name to open"),
-  }),
-  execute: async ({
-    boxId,
-    packageName,
-  }: {
-    boxId: string;
-    packageName: string;
-  }) => {
-    const box = await attachBox(boxId);
-    const app = await box.app.get(packageName);
-    await app.open();
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({ packageName, status: "opened" }),
-        },
-      ],
-    };
-  },
-});
-
-server.addTool({
-  name: "open_live_view",
-  annotations: {
-    openWorldHint: true,
-    readOnlyHint: false,
-    title: "Open Live View",
-  },
-  description:
-    "Open the live-view URL of the Android box in the default browser.",
-  parameters: z.object({
-    boxId: z.string().describe("ID of the box"),
-  }),
-  execute: async ({ boxId }: { boxId: string }) => {
-    const box = await attachBox(boxId);
-    const liveView = await box.liveView();
-
-    // Determine the appropriate command to open the URL based on the OS
-    const command =
-      process.platform === "darwin"
-        ? `open "${liveView.url}"`
-        : process.platform === "win32"
-        ? `start "" "${liveView.url}"`
-        : `xdg-open "${liveView.url}"`;
-
-    exec(command, (err) => {
-      if (err) {
-        console.error(`Failed to open browser for URL ${liveView.url}:`, err);
+      if (!response.success) {
+        throw new Error(`Stop app failed: ${response.message}`);
       }
-    });
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Opening live view in browser: ${liveView.url}`,
-        },
-      ],
-    };
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✅ Android app stopped successfully: ${response.message}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `❌ Error stopping Android app: ${(error as Error).message}`,
+          },
+        ],
+      };
+    }
+  },
+});
+
+// Android Rerun App Tool
+server.addTool({
+  name: "android_rerun_app",
+  annotations: {
+    openWorldHint: true,
+    readOnlyHint: false,
+    title: "Rerun Android App",
+  },
+  description: "Rerun the Android application (stop and start)",
+  parameters: z.object({
+    projectPath: z
+      .string()
+      .optional()
+      .describe("Optional path to the Android project"),
+  }),
+  execute: async ({ projectPath }: { projectPath?: string }) => {
+    try {
+      const response = await makeApiRequest("rerun", { projectPath });
+
+      if (!response.success) {
+        throw new Error(`Rerun failed: ${response.message}`);
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✅ Android app rerun successful: ${response.message}${
+              response.data?.configurationName
+                ? `\nConfiguration: ${response.data.configurationName}`
+                : ""
+            }`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `❌ Error rerunning Android app: ${(error as Error).message}`,
+          },
+        ],
+      };
+    }
+  },
+});
+
+// Android Debug App Tool
+server.addTool({
+  name: "android_debug_app",
+  annotations: {
+    openWorldHint: true,
+    readOnlyHint: false,
+    title: "Debug Android App",
+  },
+  description: "Start debugging the Android application",
+  parameters: z.object({
+    projectPath: z
+      .string()
+      .optional()
+      .describe("Optional path to the Android project"),
+  }),
+  execute: async ({ projectPath }: { projectPath?: string }) => {
+    try {
+      const response = await makeApiRequest("debug", { projectPath });
+
+      if (!response.success) {
+        throw new Error(`Debug start failed: ${response.message}`);
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `🐛 Android app debug session started: ${response.message}${
+              response.data?.configurationName
+                ? `\nConfiguration: ${response.data.configurationName}`
+                : ""
+            }`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `❌ Error starting debug session: ${
+              (error as Error).message
+            }`,
+          },
+        ],
+      };
+    }
+  },
+});
+
+// Android Get Configurations Tool
+server.addTool({
+  name: "android_get_configurations",
+  annotations: {
+    openWorldHint: true,
+    readOnlyHint: true,
+    title: "Get Android Configurations",
+  },
+  description: "Get list of available Android run configurations",
+  parameters: z.object({
+    projectPath: z
+      .string()
+      .optional()
+      .describe("Optional path to the Android project"),
+  }),
+  execute: async ({ projectPath }: { projectPath?: string }) => {
+    try {
+      const response = await makeApiRequest("configurations", { projectPath });
+
+      if (response.success && response.data) {
+        const configurations = response.data;
+        return {
+          content: [
+            {
+              type: "text",
+              text: `📱 Available Android configurations (${
+                configurations.length
+              }):\n${configurations
+                .map((config: string) => `• ${config}`)
+                .join("\n")}`,
+            },
+          ],
+        };
+      } else {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `❌ Failed to get configurations: ${
+                response.message || "Unknown error"
+              }`,
+            },
+          ],
+        };
+      }
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `❌ Error getting configurations: ${
+              (error as Error).message
+            }`,
+          },
+        ],
+      };
+    }
+  },
+});
+
+// Android Select Configuration Tool
+server.addTool({
+  name: "android_select_configuration",
+  annotations: {
+    openWorldHint: true,
+    readOnlyHint: false,
+    title: "Select Android Configuration",
+  },
+  description: "Select a specific Android run configuration",
+  parameters: z.object({
+    configurationName: z
+      .string()
+      .describe("Name of the configuration to select"),
+    projectPath: z
+      .string()
+      .optional()
+      .describe("Optional path to the Android project"),
+  }),
+  execute: async ({
+    configurationName,
+    projectPath,
+  }: {
+    configurationName: string;
+    projectPath?: string;
+  }) => {
+    try {
+      const response = await makeApiRequest("select-configuration", {
+        configurationName,
+        projectPath,
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: response.success
+              ? `✅ Configuration selected: ${response.message}`
+              : `❌ Failed to select configuration: ${response.message}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `❌ Error selecting configuration: ${
+              (error as Error).message
+            }`,
+          },
+        ],
+      };
+    }
+  },
+});
+
+// Android API Server Status Tool
+server.addTool({
+  name: "android_api_status",
+  annotations: {
+    openWorldHint: true,
+    readOnlyHint: true,
+    title: "Android API Server Status",
+  },
+  description: "Check the status of the Android Studio plugin API server",
+  parameters: z.object({}),
+  execute: async () => {
+    try {
+      const response = await makeApiRequest("status");
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: response.success
+              ? `✅ Android API server is running: ${response.message}`
+              : `❌ Android API server error: ${response.message}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `❌ Android API server is not running or not accessible: ${
+              (error as Error).message
+            }`,
+          },
+        ],
+      };
+    }
   },
 });
 

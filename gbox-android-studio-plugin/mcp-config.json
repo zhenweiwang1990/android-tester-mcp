@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "gbox-android": {
+      "command": "java",
+      "args": [
+        "-cp",
+        "build/libs/gbox-android-studio-plugin-1.0.0-all.jar",
+        "ai.gbox.plugin.standalone.McpLauncher"
+      ],
+      "env": {
+        "ANDROID_HOME": "${env:ANDROID_HOME}",
+        "JAVA_HOME": "${env:JAVA_HOME}"
+      }
+    }
+  }
+}

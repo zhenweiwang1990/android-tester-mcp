@@ -1,14 +1,20 @@
 # Android Tester MCP
 
-A Model Context Protocol (MCP) plugin for automating Android devices using the Gbox SDK. This plugin provides tools for creating Android boxes, taking screenshots, performing AI-powered UI actions, and managing applications.
+A Model Context Protocol (MCP) plugin for controlling Android Studio and Android applications through the Gbox Android Studio Plugin. This plugin provides tools for starting, stopping, debugging, and managing Android applications directly from Claude Code.
 
 ## Features
 
-- **Create Android Boxes**: Spin up virtual or physical Android devices
-- **Screenshot Capture**: Take screenshots of the current display
-- **AI-Powered Actions**: Perform UI actions using natural language instructions
-- **App Management**: Install, uninstall, and launch Android applications
-- **Box Management**: List and get information about your Android boxes
+- **Start Android Apps**: Launch Android applications in the current project
+- **Stop Android Apps**: Stop currently running Android applications
+- **Rerun Android Apps**: Stop and restart Android applications
+- **Debug Android Apps**: Start debugging sessions for Android applications
+- **Configuration Management**: List and select Android run configurations
+- **API Server Status**: Check the status of the Android Studio plugin API server
+
+## Prerequisites
+
+1. **Android Studio Plugin**: Install the Gbox Android Studio Plugin
+2. **API Server**: Start the API server from the Gbox menu in Android Studio (runs on port 8765)
 
 ## Setup
 
@@ -17,21 +23,14 @@ A Model Context Protocol (MCP) plugin for automating Android devices using the G
    npm install
    ```
 
-2. **Set Environment Variables**
-   
-   Create a `.env` file in the project root:
-   ```
-   GBOX_API_KEY=your_gbox_api_key_here
-   ```
-
-3. **Build the Project**
+2. **Build the Project**
    ```bash
    npm run build
    ```
 
 ## Usage
 
-This is an MCP server that provides tools for Android automation. Once running, you can use the following tools:
+This is an MCP server that provides tools for Android Studio control. Once running, you can use the following tools:
 
 ### Config in Cursor
 
@@ -40,33 +39,42 @@ This is an MCP server that provides tools for Android automation. Once running, 
   "mcpServers": {
     "gbox-android": {
       "command": "node",
-      "args": ["/YOU_PATH_TO_THIS_REPO/android-tester-mcp/dist/index.js"],
-      "env": {
-        "GBOX_API_KEY": "YOUR API KEY"
-      }
+      "args": ["/YOU_PATH_TO_THIS_REPO/android-tester-mcp/dist/index.js"]
     }
   }
 }
-
 ```
 
 ### Available Tools
 
-- **create_android_box**: Create a new Android box with specified configuration
-- **list_boxes**: List all current boxes belonging to your API key
-- **get_box**: Get detailed information about a specific box
-- **get_screenshot**: Take a screenshot of the Android device
-- **ai_action**: Perform UI actions using natural language (e.g., "click the login button")
-- **install_apk**: Install an APK file from local path or URL
-- **uninstall_apk**: Uninstall an app by package name
-- **open_app**: Launch an installed application
+- **android_start_app**: Start the Android application in the current project
+- **android_stop_app**: Stop the currently running Android application
+- **android_rerun_app**: Rerun the Android application (stop and start)
+- **android_debug_app**: Start debugging the Android application
+- **android_get_configurations**: Get list of available Android run configurations
+- **android_select_configuration**: Select a specific Android run configuration
+- **android_api_status**: Check the status of the Android Studio plugin API server
 
 ## Requirements
 
 - Node.js and npm
-- Valid Gbox API key
-- TypeScript (for development)
+- Android Studio with Gbox Android Studio Plugin installed
+- Android Studio Plugin API server running on port 8765
 
 ## Sample Prompts in Cursor
 
-> Test the apk of this project like a user, just create an android environment on gbox, and install it and test it by instructing the MCP tool ai_action. Keep developing and testing until all requirements are met.
+> Start the Android app in debug mode
+
+> Stop the running Android application
+
+> Rerun the app with the "debug" configuration
+
+> Show me all available run configurations
+
+> Select the "app" configuration and start debugging
+
+## How it Works
+
+This MCP server communicates with the Gbox Android Studio Plugin via HTTP API calls to port 8765. The plugin must be installed in Android Studio and the API server must be running for the tools to work.
+
+The server provides a bridge between Claude Code and Android Studio, allowing you to control Android application execution programmatically through natural language commands.

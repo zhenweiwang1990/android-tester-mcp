@@ -1,0 +1,64 @@
+<idea-plugin>
+    <id>ai.gbox.android-studio-plugin</id>
+    <name>Gbox Android Controller</name>
+    <vendor email="support@gbox.ai" url="https://gbox.ai">Gbox AI</vendor>
+
+    <description><![CDATA[
+    Gbox Android Studio Plugin provides programmatic control over Android app execution.
+    
+    Features:
+    - Start, stop, rerun Android applications
+    - Debug control and management  
+    - HTTP API endpoints for external control
+    - MCP (Model Context Protocol) integration
+    - Remote control via Claude Code and other tools
+    
+    Perfect for automated testing, CI/CD integration, and remote development workflows.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>org.jetbrains.android</depends>
+    <depends>com.intellij.gradle</depends>
+    <depends>com.intellij.modules.java</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <applicationService serviceImplementation="ai.gbox.plugin.services.GboxApiService"/>
+        <applicationService serviceImplementation="ai.gbox.plugin.services.AndroidControlService"/>
+    </extensions>
+
+    <actions>
+        <group id="GboxActions" text="Gbox" description="Gbox Android Control Actions">
+            <add-to-group group-id="MainMenu" anchor="last"/>
+            
+            <action id="Gbox.StartApp" 
+                    class="ai.gbox.plugin.actions.StartAppAction" 
+                    text="Start Android App" 
+                    description="Start the current Android application"/>
+                    
+            <action id="Gbox.StopApp" 
+                    class="ai.gbox.plugin.actions.StopAppAction" 
+                    text="Stop Android App" 
+                    description="Stop the current Android application"/>
+                    
+            <action id="Gbox.RerunApp" 
+                    class="ai.gbox.plugin.actions.RerunAppAction" 
+                    text="Rerun Android App" 
+                    description="Rerun the current Android application"/>
+                    
+            <action id="Gbox.DebugApp" 
+                    class="ai.gbox.plugin.actions.DebugAppAction" 
+                    text="Debug Android App" 
+                    description="Debug the current Android application"/>
+                    
+            <action id="Gbox.StartApiServer" 
+                    class="ai.gbox.plugin.actions.StartApiServerAction" 
+                    text="Start API Server" 
+                    description="Start the Gbox API server for external control"/>
+        </group>
+    </actions>
+
+    <applicationListeners>
+        <listener class="ai.gbox.plugin.listeners.GboxApplicationListener"
+                  topic="com.intellij.openapi.application.ApplicationActivationListener"/>
+    </applicationListeners>
+</idea-plugin>
