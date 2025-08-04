@@ -17,7 +17,7 @@ Before using this MCP server, ensure you have:
 
 1. **Node.js** (v18 or higher) and npm
 2. **Android Studio** with the Gbox Android Studio Plugin installed
-3. **Gbox API Server** running on port 8765
+3. **Gbox plugin API Server** running on port 8765
 
 ### Installing the Gbox Android Studio Plugin
 
@@ -62,7 +62,7 @@ Add the following configuration to your Cursor settings:
 ```json
 {
   "mcpServers": {
-    "gbox-android": {
+    "gbox-rerun": {
       "command": "node",
       "args": ["/path/to/your/android-tester-mcp/dist/index.js"]
     }
@@ -148,7 +148,7 @@ npm run inspect   # Run MCP inspector for debugging
 ### Common Issues
 
 **"API request failed: ECONNREFUSED"**
-- Ensure the Gbox API server is running in Android Studio
+- Ensure the Gbox plugin API server is running in Android Studio
 - Check that the server is running on port 8765
 - Verify the plugin is properly installed
 
